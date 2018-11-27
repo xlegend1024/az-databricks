@@ -1,0 +1,135 @@
+#!/bin/bash
+
+# Select Azure subscription
+az account list --output table
+
+echo "\n\r"
+
+read -p "Type subscription Name for lab>>" subName
+
+if [ ! -z "$subName" ]; then
+    echo "You select " $subName " for the lab."
+    az account set --subscription "$subName" --verbose
+else
+    echo "Please run the script again!! EXIT"
+    exit
+fi
+
+chkName=$(az account list --output tsv --query "[?isDefault].name")
+
+if [ "$subName" = "$chkName" ]; then
+    echo "Subscripion Name has confirmed"
+else 
+    echo "Please try again with correct subscription name"
+    exit
+fi
+
+sqlpwd=1q2w3e4r5t^Y
+
+echo ""
+az account list-locations --output table --query []['name','displayName']
+echo "Type location for the lab"
+read -p "Location >>" loc
+
+# set azure region
+if [ ! -z "$loc" ]; then
+    echo "You set location" $loc " for the lab."
+else
+    echo "Default location is West US 2"
+    loc=westus2
+fi
+
+# set resource group name
+# if you have exsiting one please use the one
+num=$(shuf -i0-1000 -n1)
+rgName=azlab-$num-rg #Save it as ps1
+# set blob name that should be unique 
+blobName=azlabblob$num # It will be saved it in parameter file
+# set container name that will be created in Blob
+containerName1=mlw-consumption
+containerName2=mlw-curated
+containerName3=mlw-model
+containerName4=mlw-raw
+containerName5=mlw-scratchdir
+containerName6=mlw-staging
+
+# set SQL Server (Instance) name
+sqlsvrName=azlabsql$num # It will be saved it in parameter file
+# DO NOT CHANGE!!!
+sqldbName=azlabdb
+# DO NOT CHANGE!!!
+sqladm=sqladmin
+# Tag you can add or remove
+myTags="Env=HandsonLab"
+
+# Create the Resource Group
+# if you have exsiting one you can skip this part
+echo "1. Create Resource Group " $rgName
+az group create --name $rgName --location $loc --tags $myTags
+
+# Storage Account
+# Create the Storage Account
+echo "2. Create Blob " $blobName
+az storage account create --name $blobName --resource-group $rgName --sku Standard_LRS --location $loc --kind StorageV2 --tags $myTags
+
+# Get blob connection string 
+blobConn=$(az storage account show-connection-string --name $blobName --resource-group $rgName --output tsv)
+blobkey1=$(az storage account keys list -n azlabblob876 -g azlab-876-rg --output tsv --query [0].value)
+
+# Create a container
+echo "3. Create container in the blob" $containerName 
+az storage container create --name $containerName1 --connection-string $blobConn
+az storage container create --name $containerName2 --connection-string $blobConn
+az storage container create --name $containerName3 --connection-string $blobConn
+az storage container create --name $containerName4 --connection-string $blobConn
+az storage container create --name $containerName5 --connection-string $blobConn
+az storage container create --name $containerName6 --connection-string $blobConn
+
+# Create a DB and restore Database from backup
+# Download Sample DB (Backup)
+echo "4. Download a sample files"
+# wget is tool you can download files
+# Cloud Shell has wget.exe on both Bash or Powershell 
+mkdir $HOME/clouddrive/az-databricks
+cd $HOME/clouddrive/az-databricks
+wget -O WorkshopData.zip https://flightdelayprediction.blob.core.windows.net/workshop-data/WorkshopData.zip
+unzip WorkshopData.zip
+
+# Uploading a SQLDB Backup file
+echo "5. Upload sample db to blob"
+az storage blob upload --container-name $containerName6 --file $HOME/clouddrive/az-databricks/WorkshopData/airport-master/AirportMasterData.csv --name airport-master/AirportMasterData.csv --connection-string $blobConn
+az storage blob upload --container-name $containerName6 --file $HOME/clouddrive/az-databricks/WorkshopData/batch-scoring/BatchScoringDataset.csv --name batch-scoring/BatchScoringDataset.csv --connection-string $blobConn
+az storage blob upload --container-name $containerName6 --file $HOME/clouddrive/az-databricks/WorkshopData/carrier-master/CarrierMasterData.csv --name carrier-master/CarrierMasterData.csv --connection-string $blobConn
+az storage blob upload --container-name $containerName6 --file $HOME/clouddrive/az-databricks/WorkshopData/flight-transactions/FlightDelaysWithAirportCodes-part1.csv --name flight-transactions/FlightDelaysWithAirportCodes-part1.csv --connection-string $blobConn
+az storage blob upload --container-name $containerName6 --file $HOME/clouddrive/az-databricks/WorkshopData/flight-transactions/FlightDelaysWithAirportCodes-part2.csv --name flight-transactions/FlightDelaysWithAirportCodes-part2.csv --connection-string $blobConn
+az storage blob upload --container-name $containerName6 --file $HOME/clouddrive/az-databricks/WorkshopData/flight-transactions/FlightDelaysWithAirportCodes-part3.csv --name flight-transactions/FlightDelaysWithAirportCodes-part3.csv --connection-string $blobConn
+az storage blob upload --container-name $containerName6 --file $HOME/clouddrive/az-databricks/WorkshopData/weather-ref/AirportWeatherReferenceData.csv --name weather-ref/AirportWeatherReferenceData.csv --connection-string $blobConn
+
+# Confirm file is uploaded 
+az storage blob list --container-name $containerName6 --connection-string $blobConn --output table
+
+# Create SQL Server and restore database from backup 
+# Create a SQL Server
+echo "6. Create a SQL Server " $sqlsvrName
+az sql server create --admin-user $sqladm --admin-password $sqlpwd --location $loc --name $sqlsvrName --resource-group $rgName 
+
+# Create a SQL DB
+echo "7. Create a SQL DB " $sqldbName
+az sql db create --name $sqldbName --resource-group $rgName --server $sqlsvrName --service-objective S1 
+
+echo "8. Update SQL Server Firewall"
+az sql server firewall-rule create -n openall --start-ip-address 1.1.1.1 --end-ip-addres 255.255.255.255 -g $rgName -s $sqlsvrName
+
+echo "9. Create a table for lab"
+wget -O $HOME/clouddrive/az-databricks/CreateTbl.sql https://flightdelayprediction.blob.core.windows.net/workshop-data/WorkshopData.zip
+sqlcmd -S $sqlsvrName.database.windows.net -d $sqldbName -U $sqladm -P $sqlpwd -i $HOME/clouddrive/az-databricks/CreateTbl.sql -o $HOME/clouddrive/az-databricks/output.txt
+
+echo "Resource Group Name:          " $rgName
+echo "Location:                     " $loc
+echo "Blob:                         " $blobName
+echo "Blob Key:                     " $blobkey1
+echo "SQL Server:                   " $sqlsvrName
+echo "SQL Database:                 " $sqldbName
+echo "Your Resource Group Name is:  " $rgName
+echo "Your SQL DB IDis :            " $sqladm
+echo "Your SQL DB Password is:      " $sqlpwd
