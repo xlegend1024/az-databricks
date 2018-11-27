@@ -121,7 +121,7 @@ echo "8. Update SQL Server Firewall"
 az sql server firewall-rule create -n openall --start-ip-address 1.1.1.1 --end-ip-addres 255.255.255.255 -g $rgName -s $sqlsvrName
 
 echo "9. Create a table for lab"
-wget -O $HOME/clouddrive/az-databricks/CreateTbl.sql https://flightdelayprediction.blob.core.windows.net/workshop-data/WorkshopData.zip
+wget -O $HOME/clouddrive/az-databricks/CreateTbl.sql https://raw.githubusercontent.com/xlegend1024/az-databricks/master/SQLDB/CreateTbl.sql
 sqlcmd -S $sqlsvrName.database.windows.net -d $sqldbName -U $sqladm -P $sqlpwd -i $HOME/clouddrive/az-databricks/CreateTbl.sql -o $HOME/clouddrive/az-databricks/output.txt
 
 echo "Resource Group Name:          " $rgName
