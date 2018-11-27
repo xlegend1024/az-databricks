@@ -1,7 +1,5 @@
 # az-databricks
 
-Lab 0. Create Lab Environment
+[0. Create Lab Environment](00.SetupEnv.md)
 
-sql db parameters, ```
-d@t@br1ck$
-```
+[1. Import Notebooks](01.CreateDatabricks.md)
